@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [ "$1" = "test" ]; then
+	sudo -u pi /home/pi/insteonctl ping courtyard 2>&1 | grep "Resource temporarily unavailable" >/dev/null
+	[ $? -eq 0 ] && return 1
+	return 0
+elif [ "$1" = "repair" ]; then
+	time=$(($(date +%s) - $(stat -c %Y /proc/$(pgrep plmpower))))
+	echo rebooting > /tmp/insteon.watchdog
+fi

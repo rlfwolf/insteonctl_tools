@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# requires jq package
+#
+# You will need to create an Access Token from the HA UI.  Go to your user
+# profile page and scroll down to the bottom where it says "Long-Lived
+# Access Tokens" and click CREATE TOKEN.  It will ask you for a name which
+# can be anything but you might want to put a date code in it because you
+# might want to rotate this token occasionally.  After you enter the name
+# it will produce a long string which you should copy and set auth_token
+# to that string.
+
+mydir=`dirname "$0"`
+mypath=`readlink -f "$mydir"`
+
+auth_token="insert.your.auth.token.here"
+
+auth="Authorization: Bearer $auth_token"
+content="Content-Type: application/json"
+
+entity_list=`curl -s -X GET -H "$auth" -H "$content" http://localhost:8123/api/states | jq  '.[].entity_id'| tr -d '"' | grep "^switch\." | tr '\n' ' '`
+
+for device in $entity_list; do
+  json=`curl -s -X GET -H "$auth" -H "$content" http://localhost:8123/api/states/$device`
+  iaddr=`echo $json| jq '.attributes."INSTEON Address"'|tr -d '"'`
+  ha_state=`echo $json| jq '.state'|tr -d '"'`
+  status=`${mypath}/insteonctl status $iaddr | sed -n "s/${iaddr}: //p"`
+  if [ "$status" ]; then
+    [ "$status" = "00" ] && statstr="off" || statstr="on"
+    echo "$iaddr = $statstr ($ha_state)"
+    if [ "$ha_state" != "$statstr" ]; then
+      new_json=`echo $json | jq ".state = \"$statstr\""`
+      echo "$new_json" | curl -s -X POST -H "$auth" -H "$content" -d @- http://localhost:8123/api/states/$device
+    fi
+  else
+    echo "$iaddr not responding"
+  fi
+done

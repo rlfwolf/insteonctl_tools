@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# This script requires plmpower which is available as part of the powerman
+# package which is available in most repos.  Set port variable to the device
+# file of your insteon PLM device.  If port is left empty, then it it will
+# attempt to automatically figure out the port
+
+#set -x
+
+mydir=`dirname "$0"`
+mypath=`readlink -f "$mydir"`
+
+port=""
+
+devicefile="$mypath/insteon_devices.csv"
+devicepath=`readlink -f "$devicefile"`
+
+cmds="on off status ping"
+
+cmd=$1
+dev=$2
+
+echo "$cmds" | grep -w "$cmd" >/dev/null
+if [ $? -ne 0 ]; then
+	echo "Invalid command: $cmd"
+	echo "Valid comands include: $cmds"
+	exit 1
+fi
+
+
+devlist=""
+if [ -f "$devicepath" ]; then
+	devlist=`cat "$devicepath"`
+fi
+
+lookup_dev() {
+	addr=`echo "$devlist" | egrep "^$1,"|awk -F, '{print$2}'`
+	if [ ! "$addr" ]; then
+		addr=`echo $1|sed -n 's/^\([0-9a-fA-F]\?[0-9a-fA-F]\)\.\?\([0-9a-fA-F][0-9a-fA-F]\)\.\?\([0-9a-fA-F][0-9a-fA-F]\)$/\1.\2.\3/p'`
+	fi
+	addr=`echo "$addr" | tr '[a-z]' '[A-Z]'`
+	echo "$addr"
+}
+
+addr=`lookup_dev "$dev"`
+
+if [ -z "$port" ]; then
+  port=`readlink -f /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A901M6KK-if00-port0`
+fi
+
+if [ -z "$port" ]; then
+  echo "Port was not specified and could not be auto-discovered."
+  exit 2
+fi
+
+if [ "$addr" ]; then
+echo "$cmd $addr"
+	echo "$cmd $addr" | timeout 5 plmpower -d $port | sed 's/plmpower> \?//g'
+#	if [ "$cmd" = "off" -o "$cmd" = "on" ]; then
+#		echo "status $addr" | /usr/bin/plmpower -d /dev/ttyUSB1 | sed 's/plmpower> \?//g'
+#	fi
+fi

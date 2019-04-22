@@ -1,0 +1,94 @@
+#!/bin/sh
+
+#set -x
+
+TZ='America/Los_Angeles'; export TZ
+
+fullpath=`readlink -f "$0"`
+myname=`basename "$fullpath"`
+mypath=`dirname "$fullpath"`
+
+ctlcmd="${mypath}/insteonctl"
+
+$ctlcmd ping courtyard 2>&1 | grep "Resource temporarily unavailable" >/dev/null
+if [ $? -eq 0 ]; then
+   killall plmpower
+fi
+
+timerfile="${mypath}/insteon_timers.csv"
+[ $# -gt 0 ] && [ -f "$1" ] && timerfile="$1"
+
+curtime=`date +%H%M`
+
+datestr=`date "+%b %d, %Y"`;
+#sunset_pm=`links -dump -width 300 'http://www.timeanddate.com/worldclock/astronomy.html?n=224'| grep "$datestr" | sed -n 's/.* AM \([0-9:]*\) PM .*/\1/p'|head -1|sed 's/://'`
+#sunset_pm=`links -dump -width 300 'http://www.timeanddate.com/worldclock/astronomy.html?n=224' | sed -n 's/.* AM \+\([0-9:]*\) PM .*/\1/p'|head -1|sed 's/://'`
+
+sunsetfile="${mypath}/.sunset"
+
+if [ ! -f "$sunsetfile" ] || [ "`find $sunsetfile -mtime +1 2>/dev/null`" ]
+then
+  sunset_iso=`curl -s 'http://api.sunrise-sunset.org/json?lat=37.221393&lng=-121.857084&date=today&formatted=0'|jq '.results.sunset'|sed 's/"//g'`
+  if [ "$sunset_iso" ]; then
+    sunset=`date -d "$sunset_iso" +%H%M`
+    echo "$sunset" >"$sunsetfile"
+  else
+    sunset=1700
+    echo "Sunset lookup failed... using $sunset"
+  fi
+fi
+
+if [ -f "$sunsetfile" ]; then
+  sunset=`cat "$sunsetfile"`
+fi
+
+echo "Sunset is at $sunset"
+if [ "$sunset_pm" ]; then
+	sunset=`expr $sunset_pm + 1200`
+fi
+
+if [ $# -ge 1 ]; then
+	if [ -f "$1" -a -r "$1" ]; then
+		timerfile="$1"
+	else
+		echo "Timer file \"$1\" not readable."
+		echo "Using default \"$timerfile\"."
+	fi
+fi
+
+if ! [ -f "$timerfile" -a -r "$timerfile" ]; then
+	echo "Default timer file \"$timerfile\" not readable."
+	exit 1;
+fi
+
+IFS=","
+sed 's/#.*//' "$timerfile" | while read start end name state; do
+	statematch="yes"
+	if [ "$state" ]; then
+		curstate=`echo here` # replace with occupancy script
+		if [ "$curstate" != "$state" ]; then
+			statematch=""
+		fi
+	fi
+	eval "start=`echo $start| sed s/^_/\$/`"
+	[ "$start" -a "$end" -a "$name" ] || continue
+	echo "start=$start end=$end name=$name"
+	if [ $start -lt $end ]; then
+		if [ $curtime -ge $start -a $curtime -lt $end ] && [ "$statematch" ]; then
+			echo "Turn $name ON"
+			$ctlcmd on $name
+		else
+			echo "Turn $name OFF"
+			$ctlcmd off $name
+		fi
+	else
+		if [ $curtime -ge $start -o $curtime -lt $end ] && [ "$statematch" ]; then
+			echo "Turn $name ON"
+			$ctlcmd on $name
+		else
+			echo "Turn $name OFF"
+			$ctlcmd off $name
+		fi
+	fi
+	sleep 5
+done
