@@ -1,0 +1,8 @@
+#!/bin/sh
+
+# This script requires plmtools from https://sourceforge.net/projects/plmtools/
+# Specifically the plmsend command.
+
+PLMTOOLS_HOME=/home/pi/plmtools-0.0.3-r1
+
+PLMTOOLS_HOME/plmsend -t 1000 -d /dev/ttyUSB0 02640101
